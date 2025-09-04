@@ -11,7 +11,7 @@ from typing import Dict, Any
 
 # Configuration
 API_BASE = "http://192.168.1.30:8001"  # Use the specific IP address
-MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct-AWQ"
+MODEL_NAME = "Qwen/Qwen2.5-14B-Instruct-AWQ"
 
 def check_connection() -> bool:
     """Check if the orchestrator is running and healthy."""

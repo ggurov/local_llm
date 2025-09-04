@@ -134,7 +134,7 @@ async def chat_completions(request: ChatRequest):
         response = ChatResponse(
             id=f"chatcmpl-{int(time.time())}",
             created=int(time.time()),
-            model=request.model or "Qwen/Qwen2.5-7B-Instruct-AWQ",
+            model=request.model or "Qwen/Qwen2.5-14B-Instruct-AWQ",
             choices=[{
                 "index": 0,
                 "message": {

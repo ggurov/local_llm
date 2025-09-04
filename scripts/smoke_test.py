@@ -22,7 +22,7 @@ class SmokeTester:
         
         try:
             payload = {
-                "model": "Qwen/Qwen2.5-7B-Instruct-AWQ",
+                "model": "Qwen/Qwen2.5-14B-Instruct-AWQ",
                 "messages": [{"role": "user", "content": "Hello, respond with just 'ping'"}],
                 "max_tokens": 10,
                 "temperature": 0.1
@@ -193,7 +193,7 @@ class SmokeTester:
                 "messages": [
                     {"role": "user", "content": "Can you get the boost_target map data and summarize any anomalies?"}
                 ],
-                "model": "Qwen/Qwen2.5-7B-Instruct-AWQ",
+                "model": "Qwen/Qwen2.5-14B-Instruct-AWQ",
                 "temperature": 0.7
             }
             

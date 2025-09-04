@@ -20,7 +20,7 @@ class LLMClient:
         self.langchain_client = ChatOpenAI(
             base_url=self.base_url,
             api_key="dummy",  # vLLM doesn't require real API key
-            model="Qwen/Qwen2.5-7B-Instruct-AWQ"
+            model="Qwen/Qwen2.5-14B-Instruct-AWQ"
         )
     
     async def health_check(self) -> bool:
@@ -43,7 +43,7 @@ class LLMClient:
         """Send chat completion request to vLLM."""
         
         payload = {
-            "model": model or "Qwen/Qwen2.5-7B-Instruct-AWQ",
+            "model": model or "Qwen/Qwen2.5-14B-Instruct-AWQ",
             "messages": messages,
             "temperature": temperature,
             "stream": stream

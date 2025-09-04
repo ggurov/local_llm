@@ -11,7 +11,7 @@ echo ""
 ORCHESTRATOR_IP="192.168.1.30"
 ORCHESTRATOR_PORT="8001"
 STREAMLIT_PORT="8502"
-WEB_SERVER_PORT="9090"
+WEB_SERVER_PORT="9091"
 
 # Check if services are running
 echo "🔍 Checking if services are running..."
