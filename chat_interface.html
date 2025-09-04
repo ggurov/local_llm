@@ -324,11 +324,11 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        model: 'Qwen/Qwen2.5-7B-Instruct-AWQ',
-                        messages: conversationHistory,
-                        temperature: 0.7
-                    })
+                                    body: JSON.stringify({
+                    model: 'Qwen/Qwen2.5-7B-Instruct-AWQ',
+                    messages: conversationHistory,
+                    temperature: 0.7
+                })
                 });
 
                 if (!response.ok) {

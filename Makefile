@@ -62,19 +62,19 @@ smoke: ## Quick smoke test - send a ping to vLLM
 	@echo "Smoke Test - Testing vLLM..."
 	@curl -s http://localhost:8000/v1/chat/completions \
 		-H 'Content-Type: application/json' \
-		-d '{"model":"Qwen/Qwen2.5-32B-Instruct-AWQ","messages":[{"role":"user","content":"ping"}],"max_tokens":10}' | jq '.choices[0].message.content' || echo "❌ Smoke test failed"
+		-d '{"model":"Qwen/Qwen2.5-7B-Instruct-AWQ","messages":[{"role":"user","content":"ping"}],"max_tokens":10}' | jq '.choices[0].message.content' || echo "❌ Smoke test failed"
 
 test-chat: ## Test the orchestrator chat endpoint
 	@echo "Testing orchestrator chat..."
 	@curl -s http://localhost:8001/chat \
 		-H 'Content-Type: application/json' \
-		-d '{"message":"Hello, can you help me?"}' | jq '.response' || echo "❌ Chat test failed"
+		-d '{"model":"Qwen/Qwen2.5-7B-Instruct-AWQ","message":"Hello, can you help me?"}' | jq '.response' || echo "❌ Chat test failed"
 
 test-tools: ## Test tool execution
 	@echo "Testing tool execution..."
 	@curl -s http://localhost:8001/tools/execute \
 		-H 'Content-Type: application/json' \
-		-d '{"tool_name":"get_map","arguments":{"key":"boost_target"}}' | jq '.result' || echo "❌ Tool test failed"
+		-d '{"model":"Qwen/Qwen2.5-7B-Instruct-AWQ","tool_name":"get_map","arguments":{"key":"boost_target"}}' | jq '.result' || echo "❌ Tool test failed"
 
 test-full: ## Run full test suite
 	@echo "Running full test suite..."
