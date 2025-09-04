@@ -1,0 +1,243 @@
+TITLE: Local LLM Agentic-Dev Stack (Cursor Implementation Spec)
+
+1) GOALS & NON-GOALS
+Goals
+- Serve a fast, local, OpenAI-compatible chat endpoint for agentic workflows.
+- Orchestrate tool calls (code execution, retrieval-augmented generation) with traceability and guardrails.
+- Keep the main LLM on the RTX 4090 (24 GB); offload embeddings/rerankers to a 2070/2080 when available.
+- Support 16k–20k token contexts on 32B-class models (batch=1) with low latency.
+
+Non-Goals
+- Multi-node tensor parallel or cross-machine sharding.
+- Model fine-tuning or RL training.
+
+2) HARDWARE ASSUMPTIONS & CONSTRAINTS
+- Primary GPU: RTX 4090 (24 GB VRAM) → hosts the main LLM.
+- Auxiliary GPUs (optional): 2070/2080 (8 GB each) → embeddings/rerankers.
+- CPU/RAM: AMD 5950X + 128 GB → vector DB, orchestration, logs, sandbox.
+- No NVLink → avoid multi-GPU sharding for a single large model.
+- Storage: fast NVMe for model cache; allocate ≥ 500 GB (1 TB preferred).
+
+3) SERVICES (MINIMAL VIABLE STACK)
+- LLM Inference: vLLM OpenAI-compatible server (tool/function calling).
+  Default model: Qwen/Qwen2.5-32B-Instruct-AWQ
+  Key flags: --max-model-len 16384 (increase only if VRAM allows), --gpu-memory-utilization 0.92
+- Embeddings: HuggingFace Text Embeddings Inference (TEI) or a small 7B server.
+  Default embeddings model: BAAI/bge-large-en-v1.5
+- Vector DB: Qdrant (local).
+- Orchestrator: Python app using LangGraph (deterministic graph, retries, memory).
+- Code Sandbox: Open Interpreter (local, confirm-before-exec) OR containerized Python runner.
+- Tracing/Observability: Langfuse (self-hosted) – optional but recommended.
+- Guardrails: JSON schema validation on tool I/O; (optional) NeMo/Guardrails later.
+
+4) DIRECTORY LAYOUT
+local-llm/
+  .env
+  docker-compose.yml
+  orchestrator/        (Python LangGraph app)
+  tools/               (local tools: code exec, file ops, ECU-specific functions)
+  scripts/             (health checks, smoke tests)
+  data/                (vector db, logs, traces)
+
+5) .ENV (EXAMPLE)
+HF_HOME=/mnt/nvme0/hf
+HF_TOKEN=
+OPENAI_COMPAT_URL=http://localhost:8000/v1
+EMBED_URL=http://localhost:8081
+QDRANT_URL=http://localhost:6333
+NVIDIA_VISIBLE_DEVICES_LLM=0
+NVIDIA_VISIBLE_DEVICES_EMB=1
+MODEL_ID=Qwen/Qwen2.5-32B-Instruct-AWQ
+MAX_MODEL_LEN=16384
+GPU_MEM_UTIL=0.92
+
+6) DOCKER-COMPOSE.YML (MINIMAL, GPU-AWARE)
+version: "3.9"
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm
+    restart: unless-stopped
+    ports: ["8000:8000"]
+    environment:
+      - HF_HOME=${HF_HOME}
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES_LLM}
+    volumes:
+      - ${HF_HOME}:/root/.cache/huggingface
+    command: >
+      --model ${MODEL_ID}
+      --max-model-len ${MAX_MODEL_LEN}
+      --gpu-memory-utilization ${GPU_MEM_UTIL}
+    runtime: nvidia
+
+  embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:latest
+    container_name: tei
+    restart: unless-stopped
+    ports: ["8081:80"]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES_EMB}
+      - MODEL_ID=BAAI/bge-large-en-v1.5
+    runtime: nvidia
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: unless-stopped
+    ports: ["6333:6333"]
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+
+  langfuse:
+    image: langfuse/langfuse:latest
+    container_name: langfuse
+    restart: unless-stopped
+    ports: ["3000:3000"]
+    environment:
+      - NEXTAUTH_SECRET=devsecret
+      - DATABASE_URL=file:./data/langfuse.db
+    volumes:
+      - ./data/langfuse:/app/data
+
+  orchestrator:
+    build: ./orchestrator
+    container_name: orchestrator
+    depends_on: [vllm, embeddings, qdrant]
+    environment:
+      - OPENAI_COMPAT_URL=${OPENAI_COMPAT_URL}
+      - EMBED_URL=${EMBED_URL}
+      - QDRANT_URL=${QDRANT_URL}
+      - LANGFUSE_HOST=http://langfuse:3000
+    volumes:
+      - ./orchestrator:/app
+    command: ["python","-m","app.main"]
+
+Notes:
+- Set NVIDIA_VISIBLE_DEVICES_* so that the 4090 is device 0 for vLLM, and a 2070/2080 is device 1 for embeddings.
+
+7) ORCHESTRATOR (LANGGRAPH) – RESPONSIBILITIES
+- Provide a simple REST or CLI entrypoint that:
+  1) Accepts user/task input.
+  2) Calls the LLM at ${OPENAI_COMPAT_URL} with tool schemas (JSON function calling).
+  3) On tool calls, routes to tools/* (e.g., search_logs, get_map, apply_patch, run_tests).
+  4) Uses embeddings → Qdrant for retrieval chunks (code/docs/logs).
+  5) Streams tokens back to the client; records traces to Langfuse.
+
+Acceptance Criteria
+- Given input “Summarize anomalies in boost_target map”, the agent:
+  - retrieves map data via tool,
+  - reasons and returns a structured summary and suggested patch or next action in ≤ 10 seconds for 2–4k contexts.
+
+8) TOOLING API (EXAMPLE JSON SCHEMA)
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "get_map",
+      "description": "Fetch a table or series by key",
+      "parameters": {
+        "type": "object",
+        "properties": { "key": { "type": "string" } },
+        "required": ["key"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "apply_patch",
+      "description": "Apply a code/data patch and run unit tests",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "repo": { "type": "string" },
+          "patch": { "type": "string" }
+        },
+        "required": ["repo","patch"]
+      }
+    }
+  }
+]
+
+9) TOKEN & VRAM BUDGET (RULES OF THUMB)
+- 32B on 24 GB (quantized weights): start with --max-model-len 16384 and batch=1.
+- If out-of-memory occurs: lower MAX_MODEL_LEN (e.g., 12288) or reduce GPU_MEM_UTIL (e.g., 0.88).
+- For contexts ≥ 20k, consider switching to a 14B variant and raising the window accordingly.
+
+10) MAKEFILE (QUALITY-OF-LIFE)
+up:        ## start all services
+	docker compose up -d --build
+down:      ## stop all services
+	docker compose down
+logs:      ## follow orchestrator logs
+	docker compose logs -f orchestrator
+smoke:     ## quick chat to vLLM
+	curl -s http://localhost:8000/v1/chat/completions \
+	 -H 'Content-Type: application/json' \
+	 -d '{"model":"${MODEL_ID}","messages":[{"role":"user","content":"ping"}]}' | jq .
+
+11) SMOKE TESTS (MUST PASS)
+- nvidia-smi shows both GPUs and utilization under load.
+- GET /v1/models on port 8000 returns the model.
+- A tool-calling flow completes end-to-end:
+  LLM requests get_map → orchestrator returns mock data → LLM summarizes and returns a structured result.
+
+12) OBSERVABILITY & GUARDRails
+- Log inputs, tool calls, outputs, token counts, and latency to Langfuse for every run.
+- Enforce JSON schema validation on tool inputs/outputs.
+- Code execution tools must require confirmation before execution, run in a restricted working directory, and have limited filesystem access.
+
+13) PERFORMANCE TUNING CHECKLIST
+- Keep contexts short; prefer retrieval over very large prompts.
+- Pre-warm the model (send a small dummy request at orchestrator startup).
+- Pin embeddings to auxiliary GPU; keep the 4090 exclusive for vLLM.
+- Store models on NVMe (HF_HOME) to reduce cold-start time.
+- If latency increases: reduce MAX_MODEL_LEN or switch to a 14B model for the planning/coordination role.
+
+14) IMPLEMENTATION STATUS (CURRENT)
+✅ COMPLETED:
+- Directory structure created (orchestrator/, tools/, scripts/, data/)
+- Docker Compose configuration with all services
+- Orchestrator Python app with LangGraph agent
+- Tool registry with 5 tools: get_map, apply_patch, search_logs, run_tests, file_operations
+- Health check and smoke test scripts
+- Makefile with 20+ management commands
+- README.md with complete documentation
+- Environment configuration (.env)
+- FastAPI endpoints: /health, /chat, /tools/execute, /tools/schemas
+
+🔄 PARTIALLY WORKING:
+- Qdrant: ✅ Fully functional
+- Orchestrator: ✅ API working, tool execution working
+- Langfuse: ⚠️ Service starting but may need configuration
+- vLLM: ❌ Device detection issues (needs NVIDIA drivers)
+- Embeddings: ❌ Syntax error in custom service (needs fix)
+
+📋 REMAINING TASKS:
+- Install NVIDIA drivers and CUDA toolkit
+- Fix embeddings service Python syntax
+- Test end-to-end LLM inference
+- Configure remote network access
+- Add more sophisticated tools
+- Set up proper authentication for production
+
+15) NETWORK ACCESS CONFIGURATION
+To enable remote access from other machines on the network:
+- Update .env: Change localhost to 0.0.0.0 for all service URLs
+- Configure firewall: Allow ports 8000, 8001, 8081, 6333, 3000
+- Restart services: make restart
+- Test from remote: curl http://<server-ip>:8001/health
+
+16) CURRENT ENDPOINTS STATUS
+✅ Working:
+- http://localhost:8001/ (orchestrator root)
+- http://localhost:8001/health (health check)
+- http://localhost:8001/tools/schemas (tool definitions)
+- http://localhost:8001/tools/execute (tool execution)
+- http://localhost:6333/collections (Qdrant API)
+
+⚠️ Needs GPU/Drivers:
+- http://localhost:8000/v1/chat/completions (vLLM)
+- http://localhost:8081/embed (embeddings)
+- http://localhost:3000 (Langfuse dashboard)
+

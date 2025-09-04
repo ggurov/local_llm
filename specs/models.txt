@@ -1,0 +1,158 @@
+# Available Models for Local LLM Stack
+# Optimized for RTX 4090 (24GB VRAM) + 128GB RAM
+
+## RECOMMENDED MODELS (RTX 4090 Compatible)
+
+### Primary LLM Models (vLLM Compatible)
+
+#### Qwen2.5 Series (Recommended)
+- **Qwen/Qwen2.5-32B-Instruct-AWQ** - 32B parameters, ~18GB VRAM
+  - Best balance of capability and performance
+  - Supports 16k+ context length
+  - Excellent for tool calling and reasoning
+  - Default model in configuration
+
+- **Qwen/Qwen2.5-14B-Instruct-AWQ** - 14B parameters, ~8GB VRAM
+  - Faster inference, lower VRAM usage
+  - Good for high-throughput scenarios
+  - Supports 32k+ context length
+  - Alternative for larger contexts
+
+- **Qwen/Qwen2.5-7B-Instruct-AWQ** - 7B parameters, ~4GB VRAM
+  - Fastest inference
+  - Can run alongside embeddings on same GPU
+  - Good for simple tasks and prototyping
+
+#### Llama 3.1 Series
+- **meta-llama/Llama-3.1-70B-Instruct** - 70B parameters, ~40GB VRAM
+  - Requires model sharding or quantization
+  - Best performance but needs careful memory management
+  - Not recommended for single RTX 4090
+
+- **meta-llama/Llama-3.1-8B-Instruct** - 8B parameters, ~5GB VRAM
+  - Good alternative to Qwen2.5-7B
+  - Fast inference, good quality
+  - Compatible with tool calling
+
+#### Mistral Series
+- **mistralai/Mistral-7B-Instruct-v0.3** - 7B parameters, ~4GB VRAM
+  - Excellent for code generation
+  - Fast and efficient
+  - Good tool calling capabilities
+
+- **mistralai/Mixtral-8x7B-Instruct-v0.1** - 45B parameters, ~26GB VRAM
+  - Mixture of Experts model
+  - High quality but requires careful memory management
+  - May need quantization for RTX 4090
+
+### Embedding Models (CPU/GPU Compatible)
+
+#### BGE Series (Recommended)
+- **BAAI/bge-large-en-v1.5** - 335M parameters, ~1.3GB VRAM
+  - Best overall performance
+  - 1024-dimensional embeddings
+  - Excellent for retrieval tasks
+  - Default in configuration
+
+- **BAAI/bge-base-en-v1.5** - 110M parameters, ~0.4GB VRAM
+  - Faster, smaller alternative
+  - 768-dimensional embeddings
+  - Good for high-throughput scenarios
+
+#### Sentence Transformers
+- **sentence-transformers/all-MiniLM-L6-v2** - 22M parameters, ~90MB VRAM
+  - Very fast, lightweight
+  - 384-dimensional embeddings
+  - Good for prototyping and simple tasks
+  - Currently configured for CPU-only testing
+
+- **sentence-transformers/all-mpnet-base-v2** - 109M parameters, ~0.4GB VRAM
+  - High quality embeddings
+  - 768-dimensional embeddings
+  - Good balance of speed and quality
+
+## MEMORY REQUIREMENTS
+
+### VRAM Usage Estimates (RTX 4090 - 24GB)
+| Model | Parameters | VRAM (FP16) | VRAM (AWQ) | Context Length | Recommended |
+|-------|------------|-------------|------------|----------------|-------------|
+| Qwen2.5-32B-AWQ | 32B | 64GB | 18GB | 16k | ✅ Primary |
+| Qwen2.5-14B-AWQ | 14B | 28GB | 8GB | 32k | ✅ Alternative |
+| Qwen2.5-7B-AWQ | 7B | 14GB | 4GB | 32k | ✅ Fast |
+| Llama-3.1-8B | 8B | 16GB | 5GB | 128k | ✅ Good |
+| Mistral-7B | 7B | 14GB | 4GB | 32k | ✅ Code |
+| Mixtral-8x7B | 45B | 90GB | 26GB | 32k | ⚠️ Tight fit |
+
+### Multi-GPU Scenarios (RTX 4090 + RTX 2070/2080)
+- **Primary GPU (4090)**: Main LLM (Qwen2.5-32B or larger)
+- **Secondary GPU (2070/2080)**: Embeddings (BGE-large) + smaller LLM for coordination
+
+## CONFIGURATION EXAMPLES
+
+### High Performance Setup
+```bash
+MODEL_ID=Qwen/Qwen2.5-32B-Instruct-AWQ
+EMBEDDINGS_MODEL=BAAI/bge-large-en-v1.5
+MAX_MODEL_LEN=16384
+GPU_MEM_UTIL=0.92
+```
+
+### High Throughput Setup
+```bash
+MODEL_ID=Qwen/Qwen2.5-14B-Instruct-AWQ
+EMBEDDINGS_MODEL=BAAI/bge-base-en-v1.5
+MAX_MODEL_LEN=32768
+GPU_MEM_UTIL=0.85
+```
+
+### Fast Development Setup
+```bash
+MODEL_ID=Qwen/Qwen2.5-7B-Instruct-AWQ
+EMBEDDINGS_MODEL=sentence-transformers/all-MiniLM-L6-v2
+MAX_MODEL_LEN=32768
+GPU_MEM_UTIL=0.70
+```
+
+## MODEL SWITCHING
+
+To switch models:
+1. Update MODEL_ID in .env file
+2. Run: `make restart`
+3. Wait for model download and loading
+4. Test with: `make smoke`
+
+## DOWNLOAD SIZES
+
+| Model | Download Size | Notes |
+|-------|---------------|-------|
+| Qwen2.5-32B-AWQ | ~18GB | Primary recommendation |
+| Qwen2.5-14B-AWQ | ~8GB | High throughput |
+| Qwen2.5-7B-AWQ | ~4GB | Fast development |
+| BGE-large-en-v1.5 | ~1.3GB | Best embeddings |
+| BGE-base-en-v1.5 | ~0.4GB | Fast embeddings |
+| all-MiniLM-L6-v2 | ~90MB | Lightweight embeddings |
+
+## PERFORMANCE CHARACTERISTICS
+
+### Inference Speed (RTX 4090)
+- **Qwen2.5-32B-AWQ**: ~15-25 tokens/sec
+- **Qwen2.5-14B-AWQ**: ~35-50 tokens/sec  
+- **Qwen2.5-7B-AWQ**: ~60-80 tokens/sec
+- **Mistral-7B**: ~50-70 tokens/sec
+
+### Quality Rankings (Subjective)
+1. **Qwen2.5-32B**: Best overall reasoning and tool calling
+2. **Llama-3.1-8B**: Excellent general purpose
+3. **Mistral-7B**: Best for code generation
+4. **Qwen2.5-14B**: Good balance of speed and quality
+5. **Qwen2.5-7B**: Fastest, good for simple tasks
+
+## NOTES
+
+- All models support function/tool calling
+- AWQ quantization provides best speed/memory tradeoff
+- Context length affects memory usage significantly
+- Consider using smaller models for coordination and larger for final reasoning
+- Embedding models can run on CPU if GPU memory is limited
+- Model switching requires service restart and re-download
+
